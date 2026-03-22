@@ -4,7 +4,6 @@ import type { FilePreview } from "./components/ResultsList";
 import SearchBar from "./components/SearchBar";
 import SettingsPanel from "./components/SettingsPanel";
 import IndexingStatsModal from "./components/IndexingStatsModal";
-
 const SEARCH_DEBOUNCE_MS = 180;
 /** Wait after last query change before POST /search — avoids aborting long server work on every keystroke. */
 const SEARCH_POST_DEBOUNCE_MS = 500;
@@ -34,10 +33,14 @@ type ParsedQuery = {
   queryLastModified?: number;
   queryLastAccessed?: number;
   queryCreated?: number;
+  /** `true` for `size>`, `false` for `size<`. */
   greaterSize?: boolean;
-  greaterLastModified?: boolean;
-  greaterLastAccessed?: boolean;
-  greaterCreated?: boolean;
+  /** `true` for `lastModified>`, `false` for `lastModified<`. */
+  lastModifiedAfter?: boolean;
+  /** `true` for `lastAccessed>`, `false` for `lastAccessed<`. */
+  lastAccessedAfter?: boolean;
+  /** `true` for `created>`, `false` for `created<`. */
+  createdAfter?: boolean;
 };
 
 const isKeyword = (value: string): value is (typeof KEYWORDS)[number] =>
@@ -62,10 +65,21 @@ const splitKeyValue = (subquery: string): [string, string] | null => {
   return [key, value];
 };
 
+/** Spring/Jackson: send times as ISO-8601 UTC (`…Z`), same instant as epoch millis. */
 const toRequestBody = (value: ParsedQuery) =>
-  JSON.stringify(value, (_, currentValue) =>
-    typeof currentValue === "bigint" ? currentValue.toString() : currentValue,
-  );
+  JSON.stringify(value, (key, currentValue) => {
+    if (typeof currentValue === "bigint") return currentValue.toString();
+    if (
+      (key === "queryLastModified" ||
+        key === "queryLastAccessed" ||
+        key === "queryCreated") &&
+      typeof currentValue === "number" &&
+      Number.isFinite(currentValue)
+    ) {
+      return new Date(currentValue).toISOString();
+    }
+    return currentValue;
+  });
 
 const isFilePreview = (value: unknown): value is FilePreview => {
   if (typeof value !== "object" || value === null) return false;
@@ -123,18 +137,18 @@ function App() {
       }
 
       if (key.endsWith(">") || key.endsWith("<")) {
-        const greater = key.endsWith(">");
-        key = key.slice(0, -1);
-        const greaterKey =
-          `greater${key.charAt(0).toUpperCase()}${key.slice(1)}` as keyof ParsedQuery;
-        if (
-          greaterKey === "greaterSize" ||
-          greaterKey === "greaterLastModified" ||
-          greaterKey === "greaterLastAccessed" ||
-          greaterKey === "greaterCreated"
-        ) {
-          result[greaterKey] = greater;
+        const isAfter = key.endsWith(">");
+        const baseKey = key.slice(0, -1);
+        if (baseKey === "size") {
+          result.greaterSize = isAfter;
+        } else if (baseKey === "lastModified") {
+          result.lastModifiedAfter = isAfter;
+        } else if (baseKey === "lastAccessed") {
+          result.lastAccessedAfter = isAfter;
+        } else if (baseKey === "created") {
+          result.createdAfter = isAfter;
         }
+        key = baseKey;
       }
 
       const queryKey =
