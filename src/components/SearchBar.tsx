@@ -9,8 +9,6 @@ const FILTER_OPTIONS = [
   { value: "size<", label: "Size <" },
   { value: "lastModified>", label: "Last modified >" },
   { value: "lastModified<", label: "Last modified <" },
-  { value: "lastAccessed>", label: "Last accessed >" },
-  { value: "lastAccessed<", label: "Last accessed <" },
   { value: "created>", label: "Created >" },
   { value: "created<", label: "Created <" },
 ] as const;
@@ -18,8 +16,6 @@ const SIZE_KEYS = ["size>", "size<"] as const;
 const TIME_KEYS = [
   "lastModified>",
   "lastModified<",
-  "lastAccessed>",
-  "lastAccessed<",
   "created>",
   "created<",
 ] as const;

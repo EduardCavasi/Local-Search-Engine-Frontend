@@ -24,6 +24,13 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function splitHighlightTerms(value: string | undefined): string[] {
+  if (typeof value !== "string") return [];
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  return trimmed.split(/\s+/).filter(Boolean);
+}
+
 /** Highlights all given terms (case-insensitive); longer terms first to reduce overlap issues. */
 function highlightTerms(text: string, terms: (string | undefined)[]): ReactNode {
   const cleaned = terms
@@ -50,6 +57,10 @@ function highlightTerms(text: string, terms: (string | undefined)[]): ReactNode 
 
 function ResultsList({ query, results, isSearching, highlights }: ResultsListProps) {
   const hasQuery = query.length > 0;
+  const fileNameTerms = splitHighlightTerms(highlights?.fileName);
+  const fileExtensionTerms = splitHighlightTerms(highlights?.fileExtension);
+  const filePathTerms = splitHighlightTerms(highlights?.filePath);
+  const contentTerms = splitHighlightTerms(highlights?.content);
 
   return (
     <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
@@ -75,15 +86,15 @@ function ResultsList({ query, results, isSearching, highlights }: ResultsListPro
               >
                 <p className="font-medium text-cyan-200">
                   {highlightTerms(result.fileName, [
-                    highlights?.fileName,
-                    highlights?.fileExtension,
+                    ...fileNameTerms,
+                    ...fileExtensionTerms,
                   ])}
                 </p>
                 <p className="mt-1 text-xs text-slate-400 break-all">
-                  {highlightTerms(result.filePath, [highlights?.filePath])}
+                  {highlightTerms(result.filePath, filePathTerms)}
                 </p>
                 <pre className="app-scrollbar mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-slate-300">
-                  {highlightTerms(result.content, [highlights?.content])}
+                  {highlightTerms(result.content, contentTerms)}
                 </pre>
               </li>
             ))}

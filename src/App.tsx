@@ -12,8 +12,6 @@ const METADATA_KEYS = [
   "size<",
   "lastModified>",
   "lastModified<",
-  "lastAccessed>",
-  "lastAccessed<",
   "created>",
   "created<",
 ] as const;
@@ -31,14 +29,11 @@ type ParsedQuery = {
   queryContent?: string;
   querySize?: bigint;
   queryLastModified?: number;
-  queryLastAccessed?: number;
   queryCreated?: number;
   /** `true` for `size>`, `false` for `size<`. */
   greaterSize?: boolean;
   /** `true` for `lastModified>`, `false` for `lastModified<`. */
   lastModifiedAfter?: boolean;
-  /** `true` for `lastAccessed>`, `false` for `lastAccessed<`. */
-  lastAccessedAfter?: boolean;
   /** `true` for `created>`, `false` for `created<`. */
   createdAfter?: boolean;
 };
@@ -71,7 +66,6 @@ const toRequestBody = (value: ParsedQuery) =>
     if (typeof currentValue === "bigint") return currentValue.toString();
     if (
       (key === "queryLastModified" ||
-        key === "queryLastAccessed" ||
         key === "queryCreated") &&
       typeof currentValue === "number" &&
       Number.isFinite(currentValue)
@@ -143,8 +137,6 @@ function App() {
           result.greaterSize = isAfter;
         } else if (baseKey === "lastModified") {
           result.lastModifiedAfter = isAfter;
-        } else if (baseKey === "lastAccessed") {
-          result.lastAccessedAfter = isAfter;
         } else if (baseKey === "created") {
           result.createdAfter = isAfter;
         }
@@ -165,8 +157,7 @@ function App() {
       }
       if (
         queryKey === "queryCreated" ||
-        queryKey === "queryLastModified" ||
-        queryKey === "queryLastAccessed"
+        queryKey === "queryLastModified"
       ) {
         const fileTimeMillis = toFileTimeMillis(value);
         if (fileTimeMillis !== undefined) {
