@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { API } from "../api";
 
 type SettingsTab = "rootDirectories" | "ignorePaths" | "ignoreExtensions";
 
@@ -33,30 +34,25 @@ const TAB_CONFIG: Array<{ id: SettingsTab; label: string; helper: string }> = [
 ];
 
 type TabEndpoints = {
-  postPath: string;
-  getPath: string;
+  /** Fully-qualified URL for POST (mutations) and GET (read list). */
+  url: string;
   paramName: "directory" | "extension";
 };
 
 const TAB_ENDPOINTS: Record<SettingsTab, TabEndpoints> = {
   rootDirectories: {
-    postPath: "/post_root_directory_rules",
-    getPath: "/get_root_directory_rules",
+    url: API.system.rootDirectoryRules,
     paramName: "directory",
   },
   ignorePaths: {
-    postPath: "/post_ignore_directory_rules",
-    getPath: "/get_ignore_directory_rules",
+    url: API.system.ignoreDirectoryRules,
     paramName: "directory",
   },
   ignoreExtensions: {
-    postPath: "/post_ignore_extension_rules",
-    getPath: "/get_ignore_extension_rules",
+    url: API.system.ignoreExtensionRules,
     paramName: "extension",
   },
 };
-
-const API_BASE_URL = "http://localhost:8080";
 
 function SettingsPanel() {
   const [isOpen, setIsOpen] = useState(false);
@@ -72,10 +68,10 @@ function SettingsPanel() {
   );
 
   const fetchRulesForTab = useCallback(async (tab: SettingsTab): Promise<string[]> => {
-    const endpoint = TAB_ENDPOINTS[tab].getPath;
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, { method: "POST" });
+    const { url } = TAB_ENDPOINTS[tab];
+    const response = await fetch(url, { method: "GET" });
     if (!response.ok) {
-      throw new Error(`Failed to fetch settings from ${endpoint} (${response.status}).`);
+      throw new Error(`Failed to fetch settings from ${url} (${response.status}).`);
     }
 
     const payload: unknown = await response.json();
@@ -118,17 +114,17 @@ function SettingsPanel() {
   }, [isOpen, refreshAllTabs]);
 
   const executeRuleChange = async (tab: SettingsTab, type: 0 | 1 | 2, value: string) => {
-    const { postPath, paramName } = TAB_ENDPOINTS[tab];
+    const { url, paramName } = TAB_ENDPOINTS[tab];
     const params = new URLSearchParams({
       type: String(type),
       [paramName]: value,
     });
 
-    const response = await fetch(`${API_BASE_URL}${postPath}?${params.toString()}`, {
+    const response = await fetch(`${url}?${params.toString()}`, {
       method: "POST",
     });
     if (!response.ok) {
-      throw new Error(`Failed to update settings on ${postPath} (${response.status}).`);
+      throw new Error(`Failed to update settings on ${url} (${response.status}).`);
     }
   };
 

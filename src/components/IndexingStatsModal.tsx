@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
+import { API } from "../api";
 
-const API_BASE_URL = "http://localhost:8080";
 /** How often to refresh stats while the modal is open (ms). */
 const STATS_POLL_INTERVAL_MS = 2000;
 
@@ -68,7 +68,7 @@ function IndexingStatsModal() {
       setErrorMessage("");
     }
     try {
-      const response = await fetch(`${API_BASE_URL}/get_indexing_report`, {
+      const response = await fetch(API.system.indexingReport, {
         method: "GET",
       });
       if (!response.ok) {

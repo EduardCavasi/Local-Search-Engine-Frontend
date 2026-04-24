@@ -1,17 +1,8 @@
 import type { ReactNode } from "react";
+import type { FilePreview } from "../api";
+import type { SearchHighlights } from "./SearchBar";
 
-export type FilePreview = {
-  fileName: string;
-  filePath: string;
-  content: string;
-};
-
-export type SearchHighlights = {
-  fileName?: string;
-  fileExtension?: string;
-  filePath?: string;
-  content?: string;
-};
+export type { FilePreview, SearchHighlights };
 
 type ResultsListProps = {
   query: string;

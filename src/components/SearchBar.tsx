@@ -19,18 +19,36 @@ const TIME_KEYS = [
   "created>",
   "created<",
 ] as const;
+const SINGLE_ROW_KEYS = ["fileName", "fileExtension", "filePath"] as const;
 
 type FilterKey = (typeof FILTER_OPTIONS)[number]["value"];
 type FilterRow = { id: number; key: FilterKey; value: string };
 
+export type SearchHighlights = {
+  fileName?: string;
+  fileExtension?: string;
+  filePath?: string;
+  content?: string;
+};
+
+export type SearchBarChange = {
+  queryString: string;
+  highlights: SearchHighlights;
+};
+
 type SearchBarProps = {
-  onQueryChange: (value: string) => void;
+  onQueryChange: (value: SearchBarChange) => void;
+  /** When set, the search bar is in "raw override" mode — it renders a read-only banner so the user can clear it. */
+  rawOverride?: string | null;
+  onClearRawOverride?: () => void;
 };
 
 const isSizeKey = (key: FilterKey): key is (typeof SIZE_KEYS)[number] =>
   SIZE_KEYS.includes(key as (typeof SIZE_KEYS)[number]);
 const isTimeKey = (key: FilterKey): key is (typeof TIME_KEYS)[number] =>
   TIME_KEYS.includes(key as (typeof TIME_KEYS)[number]);
+const isSingleRowKey = (key: FilterKey): key is (typeof SINGLE_ROW_KEYS)[number] =>
+  SINGLE_ROW_KEYS.includes(key as (typeof SINGLE_ROW_KEYS)[number]);
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
@@ -131,9 +149,30 @@ function joinDateTime(
   return `${dateStr} ${padPair(h)}:${padPair(mi)}:${padPair(s)}`;
 }
 
-function getRowError(row: FilterRow): string | undefined {
+/** Map UI filter keys to backend qualifier names understood by `SearchRequestParser`. */
+const QUALIFIER_MAP: Record<FilterKey, string> = {
+  fileName: "name",
+  fileExtension: "extension",
+  filePath: "path",
+  content: "content",
+  "size>": "size",
+  "size<": "size",
+  "lastModified>": "modified",
+  "lastModified<": "modified",
+  "created>": "created",
+  "created<": "created",
+};
+
+/** The backend parser strips a surrounding `"..."` but has no escaping — reject `"`/`=`/`|` in values. */
+const INVALID_VALUE_CHARS = /["=|]/;
+
+function getRowError(row: FilterRow, duplicateSingles: Set<FilterKey>): string | undefined {
   const value = row.value.trim();
   if (!value) return undefined;
+
+  if (INVALID_VALUE_CHARS.test(value)) {
+    return `Value cannot contain ", = or | (used by the query parser).`;
+  }
 
   if (isSizeKey(row.key) && !/^-?\d+$/.test(value)) {
     return "Size must be an integer (Java long).";
@@ -148,49 +187,92 @@ function getRowError(row: FilterRow): string | undefined {
     }
   }
 
+  if (isSingleRowKey(row.key) && duplicateSingles.has(row.key)) {
+    return "Only one row of this type is allowed.";
+  }
+
   return undefined;
 }
 
-function encodeRowValue(row: FilterRow): string {
+/** Convert a row into the backend token: `<qualifier>=<value>` with quoting when needed. */
+function encodeRowToken(row: FilterRow): string | null {
   const trimmed = row.value.trim();
-  if (!trimmed) return "";
+  if (!trimmed) return null;
+  const qualifier = QUALIFIER_MAP[row.key];
+
   if (isTimeKey(row.key)) {
     const iso = utcDateTimeToIso(trimmed);
-    return iso ?? trimmed;
+    if (!iso) return null;
+    const sign = row.key.endsWith(">") ? ">" : "<";
+    return `${qualifier}=${sign}${iso}`;
   }
-  return trimmed;
+
+  if (isSizeKey(row.key)) {
+    const sign = row.key === "size>" ? ">" : "<";
+    return `${qualifier}=${sign}${trimmed}`;
+  }
+
+  const encodedValue = /\s/.test(trimmed) ? `"${trimmed}"` : trimmed;
+  return `${qualifier}=${encodedValue}`;
 }
 
-function SearchBar({ onQueryChange }: SearchBarProps) {
+/** Track which single-row-only keys appear more than once. */
+function findDuplicateSingles(rows: FilterRow[]): Set<FilterKey> {
+  const counts = new Map<FilterKey, number>();
+  for (const row of rows) {
+    if (row.value.trim().length === 0) continue;
+    if (!isSingleRowKey(row.key)) continue;
+    counts.set(row.key, (counts.get(row.key) ?? 0) + 1);
+  }
+  const duplicates = new Set<FilterKey>();
+  for (const [key, count] of counts) {
+    if (count > 1) duplicates.add(key);
+  }
+  return duplicates;
+}
+
+function SearchBar({ onQueryChange, rawOverride, onClearRawOverride }: SearchBarProps) {
   const [rows, setRows] = useState<FilterRow[]>([
     { id: 1, key: "fileName", value: "" },
   ]);
 
+  const duplicateSingles = useMemo(() => findDuplicateSingles(rows), [rows]);
+
   const rowErrors = useMemo(() => {
     const errors: Record<number, string | undefined> = {};
     rows.forEach((row) => {
-      errors[row.id] = getRowError(row);
+      errors[row.id] = getRowError(row, duplicateSingles);
     });
     return errors;
-  }, [rows]);
+  }, [rows, duplicateSingles]);
 
-  const builtQuery = useMemo(
-    () =>
-      rows
-        .filter((row) => !rowErrors[row.id])
-        .map((row) => {
-          const encoded = encodeRowValue(row);
-          if (!encoded) return null;
-          return `${row.key}:${encoded}`;
-        })
-        .filter((entry): entry is string => entry !== null)
-        .join(";"),
-    [rowErrors, rows],
-  );
+  const change = useMemo<SearchBarChange>(() => {
+    const tokens = rows
+      .filter((row) => !rowErrors[row.id])
+      .map((row) => encodeRowToken(row))
+      .filter((token): token is string => token !== null);
+
+    const highlights: SearchHighlights = {};
+    rows.forEach((row) => {
+      if (rowErrors[row.id]) return;
+      const value = row.value.trim();
+      if (!value) return;
+      if (row.key === "fileName") highlights.fileName = value;
+      if (row.key === "fileExtension") highlights.fileExtension = value;
+      if (row.key === "filePath") highlights.filePath = value;
+      if (row.key === "content") {
+        highlights.content = highlights.content
+          ? `${highlights.content} ${value}`
+          : value;
+      }
+    });
+
+    return { queryString: tokens.join(" "), highlights };
+  }, [rowErrors, rows]);
 
   useEffect(() => {
-    onQueryChange(builtQuery);
-  }, [builtQuery, onQueryChange]);
+    onQueryChange(change);
+  }, [change, onQueryChange]);
 
   const emptyTimeRowIds = useMemo(
     () =>
@@ -263,9 +345,35 @@ function SearchBar({ onQueryChange }: SearchBarProps) {
     setRows([{ id: Date.now(), key: "fileName", value: "" }]);
   };
 
+  if (rawOverride) {
+    return (
+      <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 shadow-lg shadow-slate-950/40">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-wide text-amber-300">
+              Running suggestion
+            </p>
+            <p className="mt-1 break-all font-mono text-sm text-amber-100">
+              {rawOverride}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => onClearRawOverride?.()}
+            className="shrink-0 rounded-lg border border-amber-400/50 bg-amber-500/20 px-3 py-1.5 text-xs text-amber-100 transition hover:border-amber-300 hover:text-amber-50"
+          >
+            Back to filters
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/80 p-4 shadow-lg shadow-slate-950/40">
-      <label className="mb-2 block text-sm text-slate-300"><b>Search filters</b></label>
+      <label className="mb-2 block text-sm text-slate-300">
+        <b>Search filters</b>
+      </label>
       <div className="space-y-3">
         {rows.map((row) => {
           const [day, month, year] = splitDottedDate(row.value);
