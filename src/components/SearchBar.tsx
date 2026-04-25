@@ -163,26 +163,47 @@ const QUALIFIER_MAP: Record<FilterKey, string> = {
   "created<": "created",
 };
 
-/** The backend parser strips a surrounding `"..."` but has no escaping — reject `"`/`=`/`|` in values. */
-const INVALID_VALUE_CHARS = /["=|]/;
+/** The backend parser strips only outer quotes and splits by `|`, so we reject `"` and `=` in alternatives. */
+const INVALID_VALUE_CHARS = /["=]/;
+
+/**
+ * Split a user value into OR alternatives.
+ * Supported separators:
+ * - `|`
+ * - ` OR ` (case-insensitive)
+ */
+function splitOrValues(raw: string): string[] {
+  const trimmed = raw.trim();
+  if (!trimmed) return [];
+  if (trimmed.includes("|")) {
+    return trimmed
+      .split("|")
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
+  return trimmed
+    .split(/\s+\bOR\b\s+/i)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
 
 function getRowError(row: FilterRow, duplicateSingles: Set<FilterKey>): string | undefined {
-  const value = row.value.trim();
-  if (!value) return undefined;
+  const alternatives = splitOrValues(row.value);
+  if (alternatives.length === 0) return undefined;
 
-  if (INVALID_VALUE_CHARS.test(value)) {
-    return `Value cannot contain ", = or | (used by the query parser).`;
+  if (alternatives.some((value) => INVALID_VALUE_CHARS.test(value))) {
+    return `Value cannot contain " or = (reserved by query parser).`;
   }
 
-  if (isSizeKey(row.key) && !/^-?\d+$/.test(value)) {
-    return "Size must be an integer (Java long).";
+  if (isSizeKey(row.key) && alternatives.some((value) => !/^-?\d+$/.test(value))) {
+    return "Each size OR value must be an integer (Java long).";
   }
 
   if (isTimeKey(row.key)) {
-    if (!parseUtcDateTime(value)) {
+    if (alternatives.some((value) => !parseUtcDateTime(value))) {
       return "Use UTC date/time: DD.MM.YYYY HH:mm:ss (e.g. 21.03.2026 14:30:00).";
     }
-    if (!utcDateTimeToIso(value)) {
+    if (alternatives.some((value) => !utcDateTimeToIso(value))) {
       return "Invalid date or time.";
     }
   }
@@ -196,24 +217,28 @@ function getRowError(row: FilterRow, duplicateSingles: Set<FilterKey>): string |
 
 /** Convert a row into the backend token: `<qualifier>=<value>` with quoting when needed. */
 function encodeRowToken(row: FilterRow): string | null {
-  const trimmed = row.value.trim();
-  if (!trimmed) return null;
+  const alternatives = splitOrValues(row.value);
+  if (alternatives.length === 0) return null;
   const qualifier = QUALIFIER_MAP[row.key];
 
   if (isTimeKey(row.key)) {
-    const iso = utcDateTimeToIso(trimmed);
-    if (!iso) return null;
     const sign = row.key.endsWith(">") ? ">" : "<";
-    return `${qualifier}=${sign}${iso}`;
+    const encoded = alternatives
+      .map((raw) => utcDateTimeToIso(raw))
+      .filter((value): value is string => value !== null)
+      .map((iso) => `${sign}${iso}`);
+    if (encoded.length === 0) return null;
+    return `${qualifier}=${encoded.join("|")}`;
   }
 
   if (isSizeKey(row.key)) {
     const sign = row.key === "size>" ? ">" : "<";
-    return `${qualifier}=${sign}${trimmed}`;
+    const encoded = alternatives.map((value) => `${sign}${value}`);
+    return `${qualifier}=${encoded.join("|")}`;
   }
 
-  const encodedValue = /\s/.test(trimmed) ? `"${trimmed}"` : trimmed;
-  return `${qualifier}=${encodedValue}`;
+  const encoded = alternatives.map((value) => (/\s/.test(value) ? `"${value}"` : value));
+  return `${qualifier}=${encoded.join("|")}`;
 }
 
 /** Track which single-row-only keys appear more than once. */
@@ -255,15 +280,16 @@ function SearchBar({ onQueryChange, rawOverride, onClearRawOverride }: SearchBar
     const highlights: SearchHighlights = {};
     rows.forEach((row) => {
       if (rowErrors[row.id]) return;
-      const value = row.value.trim();
-      if (!value) return;
-      if (row.key === "fileName") highlights.fileName = value;
-      if (row.key === "fileExtension") highlights.fileExtension = value;
-      if (row.key === "filePath") highlights.filePath = value;
+      const alternatives = splitOrValues(row.value);
+      if (alternatives.length === 0) return;
+      const combined = alternatives.join(" ");
+      if (row.key === "fileName") highlights.fileName = combined;
+      if (row.key === "fileExtension") highlights.fileExtension = combined;
+      if (row.key === "filePath") highlights.filePath = combined;
       if (row.key === "content") {
         highlights.content = highlights.content
-          ? `${highlights.content} ${value}`
-          : value;
+          ? `${highlights.content} ${combined}`
+          : combined;
       }
     });
 
@@ -520,7 +546,7 @@ function SearchBar({ onQueryChange, rawOverride, onClearRawOverride }: SearchBar
                     type="text"
                     value={row.value}
                     onChange={(event) => updateRow(row.id, { value: event.target.value })}
-                    placeholder="Enter value..."
+                    placeholder="Enter value... (use OR, e.g. src OR docs)"
                     className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-slate-100 outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/30"
                   />
                 )}

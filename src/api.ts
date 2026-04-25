@@ -18,6 +18,7 @@ export const API_BASE_URL = "http://localhost:8080";
 
 export const API = {
   search: `${API_BASE_URL}/api/search`,
+  rankingAlgorithm: `${API_BASE_URL}/api/search/ranking_algorithm`,
   system: {
     index: `${API_BASE_URL}/api/system/index`,
     rootDirectoryRules: `${API_BASE_URL}/api/system/root_directory_rules`,
@@ -117,6 +118,27 @@ export async function deleteResultHistory(): Promise<void> {
 export async function triggerIndexing(): Promise<void> {
   const response = await fetch(API.system.index, { method: "POST" });
   if (!response.ok) throw new Error(`Failed to trigger indexing (${response.status}).`);
+}
+
+/**
+ * Backend `RankingStrategy` keys recognised by `SearchEngine.modifyRankingAlgorithm`.
+ * Any unknown value falls back to `combined` server-side.
+ */
+export const RANKING_ALGORITHMS = [
+  { value: "combined", label: "Combined", helper: "Default — blends relevance, recency and history." },
+  { value: "alphabetic", label: "Alphabetic", helper: "Sort results by file name (A → Z)." },
+  { value: "last_modified", label: "Last modified", helper: "Most recently changed files first." },
+  { value: "history", label: "History", helper: "Promote files you've opened before." },
+] as const;
+
+export type RankingAlgorithm = (typeof RANKING_ALGORITHMS)[number]["value"];
+
+export async function setRankingAlgorithm(algorithm: RankingAlgorithm): Promise<void> {
+  const url = `${API.rankingAlgorithm}?type=${encodeURIComponent(algorithm)}`;
+  const response = await fetch(url, { method: "POST" });
+  if (!response.ok) {
+    throw new Error(`Failed to set ranking algorithm (${response.status}).`);
+  }
 }
 
 function normalizeNumberMap(payload: unknown): Record<string, number> {

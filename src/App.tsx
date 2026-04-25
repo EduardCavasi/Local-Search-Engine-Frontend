@@ -5,6 +5,7 @@ import SettingsPanel from "./components/SettingsPanel";
 import IndexingStatsModal from "./components/IndexingStatsModal";
 import HistoryPanel from "./components/HistoryPanel";
 import SuggestionsPanel from "./components/SuggestionsPanel";
+import RankingAlgorithmPicker from "./components/RankingAlgorithmPicker";
 import { postSearch, triggerIndexing, type FilePreview, SearchRequestError } from "./api";
 
 /** Wait after last query change before POST /api/search — avoids hammering the backend on every keystroke. */
@@ -118,6 +119,7 @@ function App() {
             >
               {isReindexing ? "Reindexing..." : "Reindex"}
             </button>
+            <RankingAlgorithmPicker />
             <HistoryPanel onPickRequest={handleHistoryPick} />
             <IndexingStatsModal />
             <SettingsPanel />
