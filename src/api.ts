@@ -19,6 +19,10 @@ export const API_BASE_URL = "http://localhost:8080";
 export const API = {
   search: `${API_BASE_URL}/api/search`,
   rankingAlgorithm: `${API_BASE_URL}/api/search/ranking_algorithm`,
+  rag: {
+    prompt: `${API_BASE_URL}/api/rag/prompt`,
+    llmResponse: `${API_BASE_URL}/api/rag/llm_response`,
+  },
   system: {
     index: `${API_BASE_URL}/api/system/index`,
     rootDirectoryRules: `${API_BASE_URL}/api/system/root_directory_rules`,
@@ -118,6 +122,23 @@ export async function deleteResultHistory(): Promise<void> {
 export async function triggerIndexing(): Promise<void> {
   const response = await fetch(API.system.index, { method: "POST" });
   if (!response.ok) throw new Error(`Failed to trigger indexing (${response.status}).`);
+}
+
+/**
+ * Browser fetch cannot send a request body with GET, so the frontend uses POST here.
+ * If the backend keeps GET handlers, switch them to POST or accept a query param instead.
+ */
+export async function askRagResponse(request: string): Promise<string> {
+  const response = await fetch(API.rag.llmResponse, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=UTF-8" },
+    body: request,
+  });
+  if (!response.ok) {
+    const message = await response.text().catch(() => `status ${response.status}`);
+    throw new Error(message || `Failed to get AI response (${response.status}).`);
+  }
+  return response.text();
 }
 
 /**
