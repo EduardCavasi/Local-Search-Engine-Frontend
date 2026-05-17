@@ -5,6 +5,7 @@ const FILTER_OPTIONS = [
   { value: "fileExtension", label: "File extension" },
   { value: "filePath", label: "File path" },
   { value: "content", label: "Content" },
+  { value: "color", label: "Color" },
   { value: "size>", label: "Size >" },
   { value: "size<", label: "Size <" },
   { value: "lastModified>", label: "Last modified >" },
@@ -155,6 +156,7 @@ const QUALIFIER_MAP: Record<FilterKey, string> = {
   fileExtension: "extension",
   filePath: "path",
   content: "content",
+  color: "color",
   "size>": "size",
   "size<": "size",
   "lastModified>": "modified",
@@ -546,7 +548,11 @@ function SearchBar({ onQueryChange, rawOverride, onClearRawOverride }: SearchBar
                     type="text"
                     value={row.value}
                     onChange={(event) => updateRow(row.id, { value: event.target.value })}
-                    placeholder="Enter value... (use OR, e.g. src OR docs)"
+                    placeholder={
+                      row.key === "color"
+                        ? "Enter color... (use OR for multiple)"
+                        : "Enter value... (use OR, e.g. src OR docs)"
+                    }
                     className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-slate-100 outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/30"
                   />
                 )}

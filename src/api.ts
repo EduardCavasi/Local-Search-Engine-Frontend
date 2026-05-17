@@ -9,6 +9,7 @@
  * Supported qualifiers (see backend `SearchParams.addXxx`):
  *   - name, extension, path       (single row per query, OR via `|`)
  *   - content                     (multiple rows allowed, AND between rows)
+ *   - color                       (multiple rows allowed, AND between rows)
  *   - size=>N / size=<N           (numeric long, AND between rows)
  *   - modified=>ISO / modified=<ISO
  *   - created=>ISO / created=<ISO
@@ -39,21 +40,93 @@ export const API = {
   },
 } as const;
 
-export type FilePreview = {
+export type FilePreviewType = "TEXTUAL_FILE" | "IMAGE_FILE";
+
+export type TextualFilePreview = {
+  type: "TEXTUAL_FILE";
   fileName: string;
   filePath: string;
   content: string;
 };
 
+export type ImageFilePreview = {
+  type: "IMAGE_FILE";
+  fileName: string;
+  filePath: string;
+};
+
+export type FilePreview = TextualFilePreview | ImageFilePreview;
+
+export const isTextualFilePreview = (value: FilePreview): value is TextualFilePreview =>
+  value.type === "TEXTUAL_FILE";
+
+export const isImageFilePreview = (value: FilePreview): value is ImageFilePreview =>
+  value.type === "IMAGE_FILE";
+
+function previewTypeOf(candidate: Record<string, unknown>): string | undefined {
+  if (typeof candidate.type === "string") return candidate.type;
+  if (typeof candidate.fileType === "string") return candidate.fileType;
+  return undefined;
+}
+
 export const isFilePreview = (value: unknown): value is FilePreview => {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Record<string, unknown>;
-  return (
-    typeof candidate.fileName === "string" &&
-    typeof candidate.filePath === "string" &&
-    typeof candidate.content === "string"
-  );
+  const previewType = previewTypeOf(candidate);
+  if (
+    typeof candidate.fileName !== "string" ||
+    typeof candidate.filePath !== "string" ||
+    previewType === undefined
+  ) {
+    return false;
+  }
+  if (previewType === "TEXTUAL_FILE") {
+    return typeof candidate.content === "string";
+  }
+  if (previewType === "IMAGE_FILE") {
+    return true;
+  }
+  return false;
 };
+
+function normalizeFilePreview(value: Record<string, unknown>): FilePreview {
+  const previewType = previewTypeOf(value)!;
+  const base = {
+    fileName: value.fileName as string,
+    filePath: value.filePath as string,
+  };
+  if (previewType === "TEXTUAL_FILE") {
+    return { type: "TEXTUAL_FILE", ...base, content: value.content as string };
+  }
+  return { type: "IMAGE_FILE", ...base };
+}
+
+function mimeTypeForPath(filePath: string): string | undefined {
+  const ext = filePath.split(".").pop()?.toLowerCase();
+  if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
+  if (ext === "png") return "image/png";
+  if (ext === "gif") return "image/gif";
+  if (ext === "webp") return "image/webp";
+  if (ext === "bmp") return "image/bmp";
+  if (ext === "svg") return "image/svg+xml";
+  return undefined;
+}
+
+/** `POST /api/search/retrieve_image` — body is the absolute file path (plain text). */
+export async function retrieveImage(filePath: string, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(`${API.search}/retrieve_image`, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=UTF-8" },
+    body: filePath,
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to retrieve image (${response.status}).`);
+  }
+  const bytes = await response.arrayBuffer();
+  const mime = response.headers.get("Content-Type") ?? mimeTypeForPath(filePath);
+  return mime ? new Blob([bytes], { type: mime }) : new Blob([bytes]);
+}
 
 /** Submit a raw backend-format search string (plain text body). */
 export async function postSearch(queryString: string, signal?: AbortSignal): Promise<FilePreview[]> {
@@ -69,7 +142,9 @@ export async function postSearch(queryString: string, signal?: AbortSignal): Pro
   }
   const payload: unknown = await response.json();
   if (!Array.isArray(payload)) return [];
-  return payload.filter(isFilePreview);
+  return payload
+    .filter(isFilePreview)
+    .map((item) => normalizeFilePreview(item as Record<string, unknown>));
 }
 
 export class SearchRequestError extends Error {

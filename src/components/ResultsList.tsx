@@ -1,5 +1,10 @@
-import type { ReactNode } from "react";
-import type { FilePreview } from "../api";
+import { useEffect, useState, type ReactNode } from "react";
+import {
+  isImageFilePreview,
+  isTextualFilePreview,
+  retrieveImage,
+  type FilePreview,
+} from "../api";
 import type { SearchHighlights } from "./SearchBar";
 
 export type { FilePreview, SearchHighlights };
@@ -46,6 +51,52 @@ function highlightTerms(text: string, terms: (string | undefined)[]): ReactNode 
   );
 }
 
+type ImagePreviewProps = {
+  filePath: string;
+  fileName: string;
+};
+
+function ImagePreview({ filePath, fileName }: ImagePreviewProps) {
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let activeUrl: string | null = null;
+    setObjectUrl(null);
+    setError(null);
+
+    void retrieveImage(filePath, controller.signal)
+      .then((blob) => {
+        activeUrl = URL.createObjectURL(blob);
+        setObjectUrl(activeUrl);
+      })
+      .catch((err: unknown) => {
+        if (controller.signal.aborted) return;
+        setError(err instanceof Error ? err.message : "Failed to load image.");
+      });
+
+    return () => {
+      controller.abort();
+      if (activeUrl) URL.revokeObjectURL(activeUrl);
+    };
+  }, [filePath]);
+
+  if (error) {
+    return <p className="mt-2 text-xs text-red-300">{error}</p>;
+  }
+  if (!objectUrl) {
+    return <p className="mt-2 text-xs text-slate-500">Loading image…</p>;
+  }
+  return (
+    <img
+      src={objectUrl}
+      alt={fileName}
+      className="app-scrollbar mt-2 max-h-96 max-w-full rounded border border-slate-800 object-contain"
+    />
+  );
+}
+
 function ResultsList({ query, results, isSearching, highlights }: ResultsListProps) {
   const hasQuery = query.length > 0;
   const fileNameTerms = splitHighlightTerms(highlights?.fileName);
@@ -84,9 +135,14 @@ function ResultsList({ query, results, isSearching, highlights }: ResultsListPro
                 <p className="mt-1 text-xs text-slate-400 break-all">
                   {highlightTerms(result.filePath, filePathTerms)}
                 </p>
-                <pre className="app-scrollbar mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-slate-300">
-                  {highlightTerms(result.content, contentTerms)}
-                </pre>
+                {isTextualFilePreview(result) && (
+                  <pre className="app-scrollbar mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-slate-300">
+                    {highlightTerms(result.content, contentTerms)}
+                  </pre>
+                )}
+                {isImageFilePreview(result) && (
+                  <ImagePreview filePath={result.filePath} fileName={result.fileName} />
+                )}
               </li>
             ))}
           </ul>
