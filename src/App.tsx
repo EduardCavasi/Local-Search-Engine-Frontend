@@ -7,7 +7,8 @@ import HistoryPanel from "./components/HistoryPanel";
 import SuggestionsPanel from "./components/SuggestionsPanel";
 import RankingAlgorithmPicker from "./components/RankingAlgorithmPicker";
 import AiChatPopup from "./components/AiChatPopup";
-import { postSearch, triggerIndexing, type FilePreview, SearchRequestError } from "./api";
+import { useWidgetPopups } from "./components/widgets/WidgetPopups";
+import { postSearch, triggerIndexing, type SearchResult, SearchRequestError } from "./api";
 
 /** Wait after last query change before POST /api/search — avoids hammering the backend on every keystroke. */
 const SEARCH_POST_DEBOUNCE_MS = 500;
@@ -19,7 +20,7 @@ function App() {
   });
   /** When non-null, the effective query is a raw backend string (e.g. picked from a suggestion / history). */
   const [rawOverride, setRawOverride] = useState<string | null>(null);
-  const [results, setResults] = useState<FilePreview[]>([]);
+  const [searchResult, setSearchResult] = useState<SearchResult | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState<string>("");
   const [isReindexing, setIsReindexing] = useState(false);
@@ -29,6 +30,9 @@ function App() {
 
   const effectiveQuery = rawOverride ?? barChange.queryString;
   const effectiveHighlights: SearchHighlights = rawOverride ? {} : barChange.highlights;
+  const { actionButtons: widgetActionButtons, overlay: widgetOverlay } = useWidgetPopups(
+    searchResult?.widgetPayloads ?? [],
+  );
 
   const triggerReindex = useCallback(async () => {
     setIsReindexing(true);
@@ -66,26 +70,30 @@ function App() {
 
   useEffect(() => {
     if (!effectiveQuery) {
-      setResults([]);
+      setSearchResult(null);
       setSearchError("");
       setIsSearching(false);
       return;
     }
 
+    const abortController = new AbortController();
+
     const debounceTimer = window.setTimeout(() => {
       const requestId = ++searchRequestSeqRef.current;
+      setSearchResult(null);
       setIsSearching(true);
 
-      void postSearch(effectiveQuery)
-        .then((parsedResults) => {
+      void postSearch(effectiveQuery, abortController.signal)
+        .then((parsed) => {
           if (requestId !== searchRequestSeqRef.current) return;
-          setResults(parsedResults);
+          setSearchResult(parsed);
           setSearchError("");
         })
         .catch((error: unknown) => {
+          if (abortController.signal.aborted) return;
           console.error("Search request failed:", error);
           if (requestId !== searchRequestSeqRef.current) return;
-          setResults([]);
+          setSearchResult(null);
           if (error instanceof SearchRequestError && error.status === 400) {
             setSearchError(error.message);
           } else if (error instanceof Error) {
@@ -101,7 +109,11 @@ function App() {
         });
     }, SEARCH_POST_DEBOUNCE_MS);
 
-    return () => window.clearTimeout(debounceTimer);
+    return () => {
+      window.clearTimeout(debounceTimer);
+      abortController.abort();
+      searchRequestSeqRef.current += 1;
+    };
   }, [effectiveQuery]);
 
   return (
@@ -131,6 +143,7 @@ function App() {
           onQueryChange={handleSearchBarChange}
           rawOverride={rawOverride}
           onClearRawOverride={clearRawOverride}
+          trailingActions={widgetActionButtons}
         />
 
         <SuggestionsPanel query={effectiveQuery} onPick={handleSuggestionPick} />
@@ -144,11 +157,12 @@ function App() {
 
         <ResultsList
           query={effectiveQuery}
-          results={results}
+          searchResult={searchResult}
           isSearching={isSearching}
           highlights={effectiveHighlights}
         />
       </section>
+      {widgetOverlay}
       <AiChatPopup />
     </main>
   );

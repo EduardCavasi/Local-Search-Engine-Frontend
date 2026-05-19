@@ -1,17 +1,18 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import {
   isImageFilePreview,
   isTextualFilePreview,
-  retrieveImage,
   type FilePreview,
+  type SearchResult,
 } from "../api";
+import ImagePreview from "./ImagePreview";
 import type { SearchHighlights } from "./SearchBar";
 
 export type { FilePreview, SearchHighlights };
 
 type ResultsListProps = {
   query: string;
-  results: FilePreview[];
+  searchResult: SearchResult | null;
   isSearching: boolean;
   highlights?: SearchHighlights;
 };
@@ -51,58 +52,25 @@ function highlightTerms(text: string, terms: (string | undefined)[]): ReactNode 
   );
 }
 
-type ImagePreviewProps = {
-  filePath: string;
-  fileName: string;
-};
-
-function ImagePreview({ filePath, fileName }: ImagePreviewProps) {
-  const [objectUrl, setObjectUrl] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    let activeUrl: string | null = null;
-    setObjectUrl(null);
-    setError(null);
-
-    void retrieveImage(filePath, controller.signal)
-      .then((blob) => {
-        activeUrl = URL.createObjectURL(blob);
-        setObjectUrl(activeUrl);
-      })
-      .catch((err: unknown) => {
-        if (controller.signal.aborted) return;
-        setError(err instanceof Error ? err.message : "Failed to load image.");
-      });
-
-    return () => {
-      controller.abort();
-      if (activeUrl) URL.revokeObjectURL(activeUrl);
-    };
-  }, [filePath]);
-
-  if (error) {
-    return <p className="mt-2 text-xs text-red-300">{error}</p>;
-  }
-  if (!objectUrl) {
-    return <p className="mt-2 text-xs text-slate-500">Loading image…</p>;
-  }
-  return (
-    <img
-      src={objectUrl}
-      alt={fileName}
-      className="app-scrollbar mt-2 max-h-96 max-w-full rounded border border-slate-800 object-contain"
-    />
-  );
+function formatFileCounts(counts: SearchResult["fileCounts"]): string | null {
+  const parts: string[] = [];
+  const textual = counts.TEXTUAL_FILE ?? 0;
+  const images = counts.IMAGE_FILE ?? 0;
+  if (textual > 0) parts.push(`${textual} text`);
+  if (images > 0) parts.push(`${images} image${images === 1 ? "" : "s"}`);
+  return parts.length > 0 ? parts.join(", ") : null;
 }
 
-function ResultsList({ query, results, isSearching, highlights }: ResultsListProps) {
+function ResultsList({ query, searchResult, isSearching, highlights }: ResultsListProps) {
   const hasQuery = query.length > 0;
+  const resultsMatchQuery =
+    searchResult !== null && searchResult.query === query;
+  const results = resultsMatchQuery ? searchResult.filePreviews : [];
   const fileNameTerms = splitHighlightTerms(highlights?.fileName);
   const fileExtensionTerms = splitHighlightTerms(highlights?.fileExtension);
   const filePathTerms = splitHighlightTerms(highlights?.filePath);
   const contentTerms = splitHighlightTerms(highlights?.content);
+  const countSummary = resultsMatchQuery ? formatFileCounts(searchResult.fileCounts) : null;
 
   return (
     <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
@@ -118,12 +86,15 @@ function ResultsList({ query, results, isSearching, highlights }: ResultsListPro
             {isSearching
               ? "Searching..."
               : `${results.length} result${results.length === 1 ? "" : "s"} for "${query}"`}
+            {!isSearching && countSummary ? (
+              <span className="text-slate-500"> ({countSummary})</span>
+            ) : null}
           </p>
 
-          <ul className="mt-3 space-y-2">
-            {results.map((result) => (
+          <ul key={query} className="mt-3 space-y-2">
+            {results.map((result, index) => (
               <li
-                key={`${result.filePath}:${result.fileName}`}
+                key={`${query}:${index}:${result.filePath}`}
                 className="rounded-md border border-slate-800 bg-slate-950/60 px-3 py-2 text-sm text-slate-200"
               >
                 <p className="font-medium text-cyan-200">

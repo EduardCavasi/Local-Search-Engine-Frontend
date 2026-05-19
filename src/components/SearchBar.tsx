@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 const FILTER_OPTIONS = [
   { value: "fileName", label: "File name" },
@@ -42,6 +42,8 @@ type SearchBarProps = {
   /** When set, the search bar is in "raw override" mode — it renders a read-only banner so the user can clear it. */
   rawOverride?: string | null;
   onClearRawOverride?: () => void;
+  /** Extra controls rendered after Add filter / Clear all (e.g. context widget buttons). */
+  trailingActions?: ReactNode;
 };
 
 const isSizeKey = (key: FilterKey): key is (typeof SIZE_KEYS)[number] =>
@@ -258,7 +260,12 @@ function findDuplicateSingles(rows: FilterRow[]): Set<FilterKey> {
   return duplicates;
 }
 
-function SearchBar({ onQueryChange, rawOverride, onClearRawOverride }: SearchBarProps) {
+function SearchBar({
+  onQueryChange,
+  rawOverride,
+  onClearRawOverride,
+  trailingActions,
+}: SearchBarProps) {
   const [rows, setRows] = useState<FilterRow[]>([
     { id: 1, key: "fileName", value: "" },
   ]);
@@ -575,7 +582,7 @@ function SearchBar({ onQueryChange, rawOverride, onClearRawOverride }: SearchBar
         })}
       </div>
 
-      <div className="mt-4 flex items-center gap-3">
+      <div className="mt-4 flex flex-wrap items-center gap-3">
         <button
           type="button"
           onClick={addRow}
@@ -591,6 +598,8 @@ function SearchBar({ onQueryChange, rawOverride, onClearRawOverride }: SearchBar
         >
           Clear all
         </button>
+
+        {trailingActions}
       </div>
     </div>
   );
